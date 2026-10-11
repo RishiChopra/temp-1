@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------------------------
+# local: runs against local/docker-compose.yml
+#   * Oracle Free 23ai with three schemas standing in for the three monolith databases
+#   * Azure Service Bus emulator (topic unpaids-events, subscription "local-inspect")
+# Start:  docker compose -f local/docker-compose.yml up -d
+# Run:    ./gradlew bootRun --args='--spring.profiles.active=local'
+# ---------------------------------------------------------------------------------------------
+logging:
+  level:
+    com.premiumfinance.unpaids: DEBUG
+
+extractor:
+  go-live-date: 2026-01-01
+  claim-expires-after: 2m
+
+  service-bus:
+    connection-string: "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+    retry:
+      max-retries: 2
+      try-timeout: 20s
+
+  datasources:
+    main:
+      jdbc-url: jdbc:oracle:thin:@//localhost:1521/FREEPDB1
+      username: unpaids_extractor_main
+      password: extractor
+    pl:
+      jdbc-url: jdbc:oracle:thin:@//localhost:1521/FREEPDB1
+      username: unpaids_extractor_pl
+      password: extractor
+    cl:
+      jdbc-url: jdbc:oracle:thin:@//localhost:1521/FREEPDB1
+      username: unpaids_extractor_cl
+      password: extractor
+
+manual-unpaids:
+  pl:
+    transaction-types: MUNP
+  cl:
+    transaction-types: MUNP

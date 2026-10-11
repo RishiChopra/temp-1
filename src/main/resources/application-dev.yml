@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------------------------
+# dev: Azure Container Apps Job.
+#   * Service Bus via user-assigned managed identity (no secrets).
+#   * DB passwords are ACA secrets referencing Key Vault, exposed as environment variables.
+#   * JSON logs to stdout; the Application Insights Java agent (in the image) ships logs,
+#     traces and Micrometer metrics.
+# ---------------------------------------------------------------------------------------------
+logging:
+  structured:
+    format:
+      console: ecs
+
+extractor:
+  go-live-date: ${EXTRACTOR_GO_LIVE_DATE:2026-11-01}
+
+  service-bus:
+    fully-qualified-namespace: ${SERVICEBUS_NAMESPACE}          # e.g. sb-unpaids-dev.servicebus.windows.net
+    managed-identity-client-id: ${AZURE_CLIENT_ID:}
+
+  datasources:
+    main:
+      jdbc-url: ${MAIN_DB_URL}                              # jdbc:oracle:thin:@//host:1521/SERVICE
+      username: ${MAIN_DB_USERNAME:unpaids_extractor}
+      password: ${MAIN_DB_PASSWORD}
+    pl:
+      jdbc-url: ${PL_DB_URL}
+      username: ${PL_DB_USERNAME:unpaids_extractor}
+      password: ${PL_DB_PASSWORD}
+    cl:
+      jdbc-url: ${CL_DB_URL}
+      username: ${CL_DB_USERNAME:unpaids_extractor}
+      password: ${CL_DB_PASSWORD}
+
+manual-unpaids:
+  pl:
+    transaction-types: ${PL_MANUAL_TXN_TYPES}
+    approved-status: ${PL_APPROVED_STATUS:APPROVED}
+  cl:
+    transaction-types: ${CL_MANUAL_TXN_TYPES}
+    approved-status: ${CL_APPROVED_STATUS:APPROVED}

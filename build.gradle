@@ -1,0 +1,78 @@
+import org.springframework.boot.gradle.plugin.SpringBootPlugin
+
+plugins {
+    id 'java'
+    alias(libs.plugins.spring.boot)
+}
+
+group = 'com.premiumfinance.unpaids'
+version = '0.1.0'
+description = 'Publishes unpaid events for the PL and CL loan books (batch and manual) to Azure Service Bus'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    def bootBom = platform(SpringBootPlugin.BOM_COORDINATES)
+
+    implementation bootBom
+    implementation platform(libs.azure.sdk.bom)
+    annotationProcessor bootBom
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'          // HikariCP + JdbcClient
+    implementation 'org.springframework.boot:spring-boot-starter-validation'    // @Validated settings
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'      // Micrometer metrics
+    implementation 'tools.jackson.core:jackson-databind'                        // Jackson 3 (managed by Boot 4)
+    implementation libs.azure.messaging.servicebus
+    implementation libs.azure.identity
+    runtimeOnly 'com.oracle.database.jdbc:ojdbc17'
+
+    testImplementation bootBom
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-oracle-free'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(Test).configureEach {
+    // Mockito's inline mock maker attaches an agent at runtime; recent JDKs warn unless this is set.
+    jvmArgs '-XX:+EnableDynamicAgentLoading'
+}
+
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
+}
+
+def integrationTest = tasks.register('integrationTest', Test) {
+    description = 'Runs the Testcontainers integration tests (needs Docker).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+    dependsOn integrationTest
+}
+
+tasks.named('bootJar') {
+    archiveFileName = 'unpaids-event-extractor.jar'
+}
+
+tasks.named('jar') {
+    enabled = false
+}

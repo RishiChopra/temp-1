@@ -1,0 +1,47 @@
+# Local stack for the "local" Spring profile.
+#   docker compose -f local/docker-compose.yml up -d
+#   (first Oracle start takes ~1-2 min; watch: docker logs -f unpaids-oracle  -> "DATABASE IS READY TO USE!")
+# Oracle Free stands in for the three monolith databases (main / PL / CL as separate schemas).
+name: unpaids-local
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: unpaids-oracle
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PASSWORD: oracle
+    volumes:
+      - ../db:/opt/db:ro                                   # production DDL is reused, not duplicated
+      - ./oracle-init:/container-entrypoint-initdb.d:ro    # mock monolith tables + seed data
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # Azure Service Bus emulator (needs SQL Server). On Apple Silicon use mcr.microsoft.com/azure-sql-edge.
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: unpaids-sb-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Local_Emulator_Pwd1!"
+
+  servicebus:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    container_name: unpaids-servicebus
+    depends_on:
+      - mssql
+    ports:
+      - "5672:5672"
+      - "5300:5300"
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: mssql
+      MSSQL_SA_PASSWORD: "Local_Emulator_Pwd1!"
+      SQL_WAIT_INTERVAL: "15"
+    volumes:
+      - ./servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro

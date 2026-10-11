@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------------------------------------
+# local-azure: run on your laptop against the REAL dev Service Bus (databases still local).
+#   ./gradlew bootRun --args='--spring.profiles.active=local,local-azure'
+#
+# Prerequisites (private namespace):
+#   1. Network: be on the VPN that reaches the Azure VNet holding the Service Bus private endpoint.
+#   2. DNS: <namespace>.servicebus.windows.net must resolve to the PRIVATE IP from your laptop
+#      (corporate DNS forwarding to Azure DNS Private Resolver; as a stop-gap, a hosts-file entry).
+#      Check:  nslookup sb-premiumfinance-dev.servicebus.windows.net   -> expect 10.x.x.x
+#   3. Identity: `az login` with your corporate account. DefaultAzureCredential picks up the Azure CLI
+#      login. Your account (or an AD group) needs "Azure Service Bus Data Sender" on the topic below.
+#   4. Ports: AMQP over WebSockets (443) is used here because VPNs/proxies often block 5671.
+#
+# Safety: publishes to a SANDBOX topic by default, so local test events never reach real consumers
+# (e.g. the Flexys relay). Only point at unpaids-events deliberately.
+# ---------------------------------------------------------------------------------------------
+extractor:
+  service-bus:
+    connection-string: ""                                            # switch off the emulator from 'local'
+    fully-qualified-namespace: ${SERVICEBUS_NAMESPACE:sb-premiumfinance-dev.servicebus.windows.net}
+    managed-identity-client-id: ""                                   # use your az login, not a managed identity
+    transport: AMQP_WEB_SOCKETS
+    topic: ${SERVICEBUS_TOPIC:unpaids-events-sandbox}
+    retry:
+      max-retries: 2
+      try-timeout: 30s

@@ -1,0 +1,8 @@
+.gradle
+build
+.idea
+local
+db
+infra
+scripts
+*.md

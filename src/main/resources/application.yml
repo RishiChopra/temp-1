@@ -1,0 +1,143 @@
+# ---------------------------------------------------------------------------------------------
+# Unpaids event extractor - shared configuration.
+# Profiles: local (docker compose: Oracle Free + Service Bus emulator), dev (Azure Container Apps Job).
+# Feeds are defined only here: Spring replaces a list per profile rather than merging it.
+# ---------------------------------------------------------------------------------------------
+spring:
+  application:
+    name: unpaids-event-extractor
+  main:
+    web-application-type: none        # a run-to-completion job, no HTTP server
+    banner-mode: "off"
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+logging:
+  level:
+    root: INFO
+    com.premiumfinance.unpaids: INFO
+    com.azure: WARN
+    com.zaxxer.hikari: INFO
+
+extractor:
+  go-live-date: 2026-11-01            # nothing dated before this is ever published
+  business-zone: Europe/London
+  run-on-startup: true
+  # Business dates come from the monolith (eodc_date in the PL and CL databases), not the wall clock.
+  claim-expires-after: 35m            # longer than the ACA replica timeout (30m), so only a dead execution loses its claim
+  max-attempts: 10                    # failed attempts at a daily feed before it needs attention
+
+  publish:
+    chunk-size: 500                   # at most 1000 (Oracle IN-list limit)
+    max-send-attempts: 8              # per unpaid, before it is parked as FAILED
+    retry-backoff: 1m
+    max-retry-backoff: 30m
+    event-type: UnpaidRecorded
+    schema-version: "1.0"
+    event-source: "urn:premiumfinance:monolith:unpaids"
+    loan-number-pattern: "^[A-Z0-9-]{1,30}$"   # TODO(confirm) real PL/CL loan number formats
+
+  service-bus:
+    transport: AMQP                   # AMQP_WEB_SOCKETS uses port 443 where 5671 is blocked
+    topic: unpaids-events
+    retry:
+      max-retries: 5
+      delay: 2s
+      max-delay: 30s
+      try-timeout: 60s
+
+  housekeeping:
+    enabled: true
+    retention-days: 400               # must be more than the longest lookback-days + 7 (checked at startup)
+    delete-batch-size: 5000
+
+  # Pool settings bind straight onto Hikari. URLs and credentials are set per profile.
+  datasources:
+    main:
+      pool-name: main
+      driver-class-name: oracle.jdbc.OracleDriver
+      maximum-pool-size: 2
+      minimum-idle: 0
+      connection-timeout: 20000
+      validation-timeout: 5000
+      max-lifetime: 1800000
+      initialization-fail-timeout: -1   # start even if a database is down; only its feeds fail
+      data-source-properties:
+        "[oracle.net.CONNECT_TIMEOUT]": 10000
+        "[oracle.jdbc.ReadTimeout]": 300000
+        "[defaultRowPrefetch]": 500
+    pl:
+      pool-name: pl
+      driver-class-name: oracle.jdbc.OracleDriver
+      maximum-pool-size: 2
+      minimum-idle: 0
+      connection-timeout: 20000
+      validation-timeout: 5000
+      max-lifetime: 1800000
+      initialization-fail-timeout: -1
+      data-source-properties:
+        "[oracle.net.CONNECT_TIMEOUT]": 10000
+        "[oracle.jdbc.ReadTimeout]": 300000
+        "[defaultRowPrefetch]": 500
+    cl:
+      pool-name: cl
+      driver-class-name: oracle.jdbc.OracleDriver
+      maximum-pool-size: 2
+      minimum-idle: 0
+      connection-timeout: 20000
+      validation-timeout: 5000
+      max-lifetime: 1800000
+      initialization-fail-timeout: -1
+      data-source-properties:
+        "[oracle.net.CONNECT_TIMEOUT]": 10000
+        "[oracle.jdbc.ReadTimeout]": 300000
+        "[defaultRowPrefetch]": 500
+
+  # Where unpaids come from. The loan book decides the database; the origin decides the timing
+  # (BATCH: after the unpaids run, MANUAL: all day). Feed ids and source tables are part of the
+  # idempotency key: never rename them once live.
+  feeds:
+    - id: pl-batch
+      loan-book: PL
+      origin: BATCH
+      source-table: UNPAID_DETAILS
+      query: classpath:sql/feeds/pl/unpaid-details.sql
+      lookback-days: 7                # catches late and re-run unpaids
+      unpaids-job-id: 133
+
+    - id: cl-batch
+      loan-book: CL
+      origin: BATCH
+      source-table: UNPAID_DETAILS
+      query: classpath:sql/feeds/cl/unpaid-details.sql
+      lookback-days: 7
+      unpaids-job-id: 91
+
+    - id: pl-manual
+      loan-book: PL
+      origin: MANUAL
+      source-table: MANUAL_TRANSACTIONS
+      query: classpath:sql/feeds/pl/manual-unpaids.sql
+      lookback-days: 30               # longer than the slowest approval (the query filters on created date)
+      query-params:                   # brackets keep the exact bind names used in the query
+        "[manualTxnTypes]": ${manual-unpaids.pl.transaction-types}
+        "[approvedStatus]": ${manual-unpaids.pl.approved-status}
+
+    - id: cl-manual
+      loan-book: CL
+      origin: MANUAL
+      source-table: MANUAL_TRANSACTIONS
+      query: classpath:sql/feeds/cl/manual-unpaids.sql
+      lookback-days: 30
+      query-params:
+        "[manualTxnTypes]": ${manual-unpaids.cl.transaction-types}
+        "[approvedStatus]": ${manual-unpaids.cl.approved-status}
+
+# How manual unpaids are recognised in each loan book's transactions (comma-separated lists are fine).
+manual-unpaids:
+  pl:
+    transaction-types: TODO_MANUAL_UNPAID   # TODO(confirm) PL manual unpaid transaction type code(s)
+    approved-status: APPROVED               # TODO(confirm) approval status value
+  cl:
+    transaction-types: TODO_MANUAL_UNPAID   # TODO(confirm) CL manual unpaid transaction type code(s)
+    approved-status: APPROVED
